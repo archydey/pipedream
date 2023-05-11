@@ -95,6 +95,17 @@ function includesVersion(contents) {
   return contents.match(new RegExp(/version: "\d+\.\d+\.\d+"/g)) || contents.match(new RegExp(/"version": "\d+\.\d+\.\d+"/g));
 }
 
+function getVersion(contents) {
+  return includesVersion(contents)[0].match(/(\d+\.){2}\d+/)[0];
+}
+
+function increaseVersion(version) {
+  let versions = version.split('.')
+  ++versions[2]
+
+  return versions.join('.')
+}
+
 function getPackageJsonFilePath(filePaths) {
   if (Array.isArray(filePaths)) {
     const packages = new Set();
@@ -336,16 +347,33 @@ async function run() {
     componentsDiffContents = await checkVersionModification(componentsPendingForGitDiff, componentsThatDidNotModifyVersion);
   }
 
-  const totalErrors = componentsThatDidNotModifyVersion.length + componentsDiffContents.length;
+  const totalErrors = componentsThatDidNotModifyVersion.length;
   let counter = 1;
 
   componentsThatDidNotModifyVersion.forEach((filePath) => {
     console.log(`${counter++}) You need to change the version of ${filePath}.`);
   });
 
-  componentsDiffContents.forEach(({ dependencyFilePath, componentFilePath }) => {
-    console.log(`${counter++}) You need to change the version of ${getComponentFilePath(componentFilePath)} since dependency file ${getComponentFilePath(dependencyFilePath)} was modified.`);
-  });
+  if (componentsDiffContents.length) {
+    // await execCmd("git", ["config", "--global", "user.email", "pipedream@pipedream.com"]);
+    // await execCmd("git", ["config", "--global", "user.name", "Pipedream"]);
+    // await execCmd("git", ["checkout", process.env.GITHUB_HEAD_REF]);
+    // await execCmd("git", ["pull"]);
+
+    for ({ dependencyFilePath, componentFilePath } of componentsDiffContents) {
+      const content = await readFile(componentFilePath, "utf-8")
+      const currentVersion = getVersion(content)
+      const increasedVersion = increaseVersion(currentVersion)
+
+      await execCmd("sed", ["-i", `0,/${currentVersion}/{s/${currentVersion}/${increasedVersion}/}`, getComponentFilePath(componentFilePath)]);
+
+      console.log(`✅ Version of ${getComponentFilePath(componentFilePath)} changed from ${currentVersion} to ${increasedVersion} since dependency file ${getComponentFilePath(dependencyFilePath)} was modified.`);
+    };
+
+    // await execCmd("git", ["add", "."]);
+    // await execCmd("git", ["commit", "-m", "Automatically updating actions and sources versions"]);
+    // await execCmd("git", ["push", "--force-with-lease", "--no-verify"]);
+  }
 
   if (totalErrors) {
     core.setFailed(`You need to increment the version of ${totalErrors} component(s). Please see the output above and https://pipedream.com/docs/components/guidelines/#versioning for more information.`);
